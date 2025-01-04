@@ -1,0 +1,151 @@
+openapi: 3.0.3
+info:
+  title: MLOps Automation API
+  description: |-
+    Automation API example spec for managing software development and operations
+    processes and tasks.
+    * Processes are started and stopped and run for an indefinite duration
+    * Tasks are created/started and run to completion
+
+  contact:
+    email: chris.ottinger@gammadata.io
+  license:
+    name: MIT
+    url: https://mit-license.org
+  version: 0.1.0
+  
+servers:
+  - url: http://localhost/api/v1
+    
+paths:
+  /processes:
+    get:
+      summary: list available processes
+      description: Get the list of available processes
+      responses:
+        '200':
+          description:  Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessList"
+          
+  /process/{process_name}:
+    get:
+      summary: get process attributes and status
+      description: Get the status and attribute details for a process
+      parameters:
+        - $ref: "#/components/parameters/ProcessNameParam"
+      responses:
+        '200':
+          description:  Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Process"
+
+    patch:
+      summary: update process status and/or attributes
+      description: Update the status and/or attributes for a process
+      parameters:
+        - $ref: "#/components/parameters/ProcessNameParam"
+      responses:
+        '200':
+          description: "Successful"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Process"
+            
+            
+  /tasks:
+    get:
+      summary: list available tasks
+      responses:
+        '200':
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskList"
+  
+  /task/{task_name}:
+    get:
+      summary: get task attribuers and status
+      parameters:
+        - $ref: "#/components/parameters/TaskNameParam"
+      responses:
+        '200':
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+    post:
+      summary: create a new task
+      parameters:
+        - $ref: "#/components/parameters/TaskNameParam"
+      responses:
+        '200':
+          description: Task created and started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+
+    
+components:
+  schemas:
+    Process:
+      description: process
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - running
+            - stopped
+    Task:
+      description: task
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - running
+            - completed
+            - failed
+        id:
+          type: string
+        started:
+          type: string
+        completed:
+          type: string
+
+    ProcessList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Process"
+
+    TaskList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Task"
+
+  parameters:
+    ProcessNameParam:
+      name: process_name
+      in: path
+      required: true
+      schema:
+        type: string
+    TaskNameParam:
+      name: task_name
+      in: path
+      required: true
+      schema:
+        type: string

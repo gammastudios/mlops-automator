@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "mlops-automator"
+version = "0.1.0"
+description = "Example MLOps Automation solution"
+authors = ["Chris Ottinger <chris.ottinger@gammadata.io>"]
+license = "MIT"
+readme = "README.md"
+
+packages = [{include="*", from="src"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.6"
+uvicorn = "^0.34.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
