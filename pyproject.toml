@@ -12,6 +12,9 @@ packages = [{include="*", from="src"}]
 python = "^3.12"
 fastapi = "^0.115.6"
 uvicorn = "^0.34.0"
+pendulum = "^3.0.0"
+pydantic = {extras = ["extra-types"], version = "^2.10.4"}
+pydantic-extra-types = "^2.10.1"
 
 
 [build-system]

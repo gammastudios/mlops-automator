@@ -7,7 +7,10 @@ from fastapi import (
 from mlops_automator.api_service.models.task_model import (
     TaskModel,
     TaskListModel,
+    TaskParamsModel,
 )
+
+from mlops_automator.api_service.automation_services.automation_task import AutomationTaskAlreadyExistsError
 
 # create the router for process related routes
 tr = APIRouter()
@@ -28,7 +31,15 @@ def get_task(task_name: str, request: Request) -> TaskModel:
 
 
 @tr.post("/task/{task_name}")
-def create_task(task_name: str, status: str, request: Request) -> TaskModel:
-    new_task = TaskModel(name=task_name)
-    request.app.state.tasks.append(new_task)
-    return new_task
+def create_task(task_name: str, params: TaskParamsModel, request: Request) -> TaskModel:
+    for task in request.app.state.tasks:
+        if task.name == task_name:
+            try:
+                if duration := params.duration:
+                    task.duration = duration
+                task.start_task()
+                return  TaskModel.model_validate(task)
+            except AutomationTaskAlreadyExistsError:
+                raise HTTPException(status_code=409, detail=f"Task id {task.id} already running")
+            
+    raise HTTPException(status_code=404, detail="Task not found")

@@ -7,6 +7,7 @@ from fastapi import (
 from mlops_automator.api_service.models.process_model import (
     ProcessModel,
     ProcessListModel,
+    ProcessParamsModel,
 )
 
 # create the router for process related routes
@@ -28,9 +29,13 @@ def get_process(process_name: str, request: Request) -> ProcessModel:
 
 
 @pr.patch("/process/{process_name}")
-def update_process_status(process_name: str, status: str, request: Request) -> ProcessModel:
+def update_process_attrs(request: Request, process_name: str, params: ProcessParamsModel) -> ProcessModel:
     for process in request.app.state.processes:
         if process.name == process_name:
-            process.status = status
+            if status := params.status:
+                if status.lower() == 'running':
+                    process.start_worker()
+                elif status.lower() == 'stopped':
+                    process.stop_worker()
             return ProcessModel.model_validate(process)
     raise HTTPException(status_code=404, detail="Task not found")
