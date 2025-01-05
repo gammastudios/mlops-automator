@@ -21,6 +21,7 @@ class AutomationProcess:
     
     def start_worker(self):
         """Start the process worker thread, creating if not already existing"""
+        # print("attempting to start process worker")
         with self.worker_lock:
             if self.status != 'running':
                 if self.worker is None or not self.worker.is_alive():
@@ -33,10 +34,10 @@ class AutomationProcess:
 
     def stop_worker(self):
         """Stop the process worker thread"""
+        # print("attempting to stop process worker")
         with self.worker_lock:
             if self.status == 'running':
                 self.worker_stop_event.set()
-            self.status = 'stopped'
 
 
     def do_work(self):
@@ -45,3 +46,5 @@ class AutomationProcess:
             sleep(self.cycle_time)
             self.cycles_completed += 1
             self.last_cycle_dttm = now(tz='UTC')
+        self.status = 'stopped'
+        # print(f"Process worker for {self.name} stopped")
