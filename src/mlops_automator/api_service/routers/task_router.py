@@ -30,7 +30,7 @@ def get_task(task_name: str, request: Request) -> TaskModel:
     raise HTTPException(status_code=404, detail="Task not found")
 
 
-@tr.post("/task/{task_name}")
+@tr.post("/tasks/{task_name}")
 def create_task(task_name: str, params: TaskParamsModel, request: Request) -> TaskModel:
     for task in request.app.state.tasks:
         if task.name == task_name:

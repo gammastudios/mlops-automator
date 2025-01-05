@@ -1,0 +1,1 @@
+Single Page Web App for interacting and monitoring the processes and tasks available in the api_service.
