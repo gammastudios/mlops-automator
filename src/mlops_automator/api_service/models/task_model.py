@@ -21,6 +21,7 @@ class TaskListModel(BaseModel):
 
 
 class TaskParamsModel(BaseModel):
-    duration: Optional[int] = None
+    # setting min duration to 1 second and max duration to 5 minutes
+    duration: Optional[int] = Field(None, ge=1, le=60*5)
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "luxon": "^3.5.0",
+    "mithril": "^2.2.12"
+  }
+}

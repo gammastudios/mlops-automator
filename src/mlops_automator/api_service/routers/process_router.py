@@ -16,6 +16,8 @@ pr = APIRouter()
 
 @pr.get("/processes")
 def get_processes(request: Request) -> ProcessListModel:
+    # from time import sleep
+    # sleep(5)
     processes = [ProcessModel.model_validate(p) for p in request.app.state.processes]
     return ProcessListModel(processes=processes)
 

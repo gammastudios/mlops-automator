@@ -43,3 +43,13 @@ def create_task(task_name: str, params: TaskParamsModel, request: Request) -> Ta
                 raise HTTPException(status_code=409, detail=f"Task id {task.id} already running")
             
     raise HTTPException(status_code=404, detail="Task not found")
+
+
+@tr.patch("/tasks/{task_name}")
+def update_task_attrs(request: Request, task_name: str, params: TaskParamsModel) -> TaskModel:
+    for task in request.app.state.tasks:
+        if task.name == task_name:
+            if duration := params.duration:
+                task.duration = duration
+            return TaskModel.model_validate(task)
+    raise HTTPException(status_code=404, detail="Task not found")
