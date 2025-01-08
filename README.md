@@ -128,3 +128,7 @@ As the complexity grows (and most production systems are complex) each solution 
 of tools and frameworks requiring additional glue and stitching - `how we do things here`
 Especially so in the emerging space of MLOps which borrows from both application development, data science,
 and data warehousing.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
