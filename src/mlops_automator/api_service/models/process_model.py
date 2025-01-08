@@ -15,6 +15,7 @@ class ProcessModel(BaseModel):
 
 class ProcessParamsModel(BaseModel):
     status: Optional[str] = None
+    cycle_time: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 

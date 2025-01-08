@@ -4,25 +4,6 @@ import { DateTime } from "/web/static/js/luxon.js";
 
 
 // -----------------------------
-// Modal components
-// const Modal = {
-//     view: (v) => [
-//         // m('div.modal',
-//         m("modal", { class: "ui  modal active" },
-//             m('div', { class: "header" }, 'Update Process Settings: ' + v.attrs.processName),
-//             m('div', { class: "content" }, 'hello 002'),
-//             m("div", { class: "actions" },
-//                 m('button', { 
-//                     class: "ui close button",
-//                     onclick: () => showProcessSettingsModal[v.attrs.processName] = false 
-//                 }, 'Close')
-//             )
-//         )
-//     ]
-// }
-
-
-// -----------------------------
 // model
 
 const ItemGroup = Object.freeze({
@@ -64,7 +45,7 @@ var refreshState = RefreshState.AUTO;
 var prevProcessStatus = {};
 
 // used to manage async task start updates
-var prevTaskStatus = {};
+var prevTaskId = {};
 
 // refresh rate in milliseconds
 var refreshRate = 5000;
@@ -83,6 +64,44 @@ const toggleProcessItem = (process) => {
     });
 
 };
+
+
+// update process attributes, if different from the current process values
+const updateProcessItem = (process, updateValues) => new Promise((resolve, reject) => {
+    // only send attributes with different values
+    let newValues = {};
+    for (let key in updateValues) {
+        if (process[key] !== updateValues[key]) {
+            newValues[key] = updateValues[key];
+        }
+    };
+    // submit the patch request regardless of whether there are any changes and retun the result
+    m.request({
+        method: "PATCH",
+        url: "/process/" + process.name,
+        body: newValues
+    })
+    .then(data => resolve(data))
+    .catch(error => reject(error));
+});
+
+
+const updateTaskItem = (task, updateValues) => new Promise((resolve, reject) => {
+    // only send attributes with different values
+    let newValues = {};
+    for (let key in updateValues) {
+        if (task[key] !== updateValues[key]) {
+            newValues[key] = updateValues[key];
+        }
+    };
+    m.request({
+        method: "PATCH",
+        url: "/tasks/" + task.name,
+        body: newValues
+    })
+    .then(data => resolve(data))
+    .catch(error => reject(error));
+});
 
 
 const formatDttm = (dttmStr, defaultLowDttmStr="-") => {
@@ -145,9 +164,9 @@ const refreshItems = (itemSet) => new Promise((resolve, reject) => {
             } else if (itemSet === ItemGroup.TASKS) {
                 items[itemSet].forEach(task => {
                     // if there is a previous status that is different from latest status remove the update flag
-                    if (prevTaskStatus[task.name] !== undefined) {
-                        if (prevTaskStatus[task.name] !== task.status) {
-                            delete prevTaskStatus[task.name];
+                    if (prevTaskId[task.name] !== undefined) {
+                        if (prevTaskId[task.name] !== task.id) {
+                            delete prevTaskId[task.name];
                         }
                     }
                 });
@@ -178,7 +197,7 @@ const startTask = (task) => new Promise((resolve, reject) => {
 
 // refresh all the item groups
 const refreshAllItems = () => new Promise((resolve, reject) => {
-    Promise.all(itemGroups.map(itemGroup => refreshItems(itemGroup.groupName)))
+    Promise.all(itemGroupTables.map(itemGroup => refreshItems(itemGroup.groupName)))
         .then(resolve)
         .catch(reject);
 })
@@ -292,8 +311,20 @@ const Header = {
     }
 };
 
+// control dimmer behaviour
+var dimmerEnabled = false;
+const enableDimmer = () => {
+    dimmerEnabled = true;
+    $('.dimmable').dimmer({closable: false});
+    $('.dimmable').dimmer('show');
+};
 
-const itemGroupDivider = (groupLabel, groupIcon) => {
+const disableDimmer = () => {
+    dimmerEnabled = false;
+    $('.dimmable').dimmer('hide');
+}
+
+const ItemGroupDivider = (groupLabel, groupIcon) => {
     return m(
         "div", { class: "row" },
             m("div", { class: "column" },
@@ -328,10 +359,13 @@ const RunTaskButton = (task) => {
                 class: task.status === TaskStatus.RUNNING ? "ui green small labeled icon button" : "ui small labeled icon button",
                 style: "width: 120px",
                 onclick: () => {
-                    prevTaskStatus[task.name] = task.status;
+                    prevTaskId[task.name] = task.id;
                     startTask(task)
                 },
-                disabled: (prevTaskStatus[task.name] !== undefined || task.status === TaskStatus.RUNNING),
+                disabled: (prevTaskId[task.name] !== undefined
+                      || prevTaskId[task.name] === task.id 
+                      || task.status === TaskStatus.RUNNING
+                    ),
             },
             m("i", { 
                 class: task.status === TaskStatus.RUNNING ? "ui loading spinner icon" : "ui play icon" 
@@ -355,24 +389,23 @@ const ProcessStatusIndicator = (process) => {
 
 const TaskStatusIndicator = (task) => {
     return m("i", {
-        class: prevTaskStatus[task.name] !== undefined ? "ui loading spinner icon" :
+        class: (prevTaskId[task.name] !== undefined || prevTaskId[task.name] === task.id) ? "ui loading spinner icon" :
             task.status === TaskStatus.RUNNING ? "ui loading spinner icon" :
             task.status === TaskStatus.FINISHED ? "ui green check icon" : "ui yellow question circle icon"
     }, "");
 };
 
+// TODO - make this dynamic so as to not be dependent on the actual process names managed by the API svc
 var showProcessSettingsModal = { process1: false, process2: false }; ;
-var showTaskSettingsModal = false;
+var showTaskSettingsModal = { task1: false, task2: false };
 
 const ProcessSettingsButton = (process) => {
-    // open a modal dialog box to enable changing process attributes and submit the changes
     return m("div", {} ,
             m("button", { 
-                    id: "p-settings-b-" + process.name,
                     class: "ui small icon button",
                     type: "button",
                     onclick: () => { 
-                        $('.dimmable').dimmer('show');
+                        enableDimmer();
                         showProcessSettingsModal[process.name] = true;
                         console.log("settings button clicked: " + process.name);
                     },
@@ -383,37 +416,219 @@ const ProcessSettingsButton = (process) => {
 };
 
 const TaskSettingsButton = (task) => {
-    // open a modal dialog box to enable changing task attributes and submit the changes
-    return m("button", {
-        class: "ui small icon button"
+    return m("div", {},
+        m("button", {
+                class: "ui small icon button",
+                type: "button",
+                onclick: () => {
+                    enableDimmer();
+                    showTaskSettingsModal[task.name] = true;
+                    console.log("settings button clicked: " + task.name);
+                },
     },
-        m("i", { class: "ui settings icon" }, "")
+            m("i", { class: "ui settings icon" }, "")),
+        showTaskSettingsModal[task.name] && m(TaskSettingsModal, { taskName: task.name }, "")
     );
 };
 
+
+/**
+ * NumericField Component
+ * 
+ * A generic numeric input field component with optional units label.
+ * This component is designed to be reusable and can be used in various forms
+ * where numeric input is required.
+ * 
+ * Supported Attributes:
+ * - id: The id of the input field (string)
+ * - value: The initial value of the input field (number)
+ * - label: The text label for the input field (string)
+ * - units: Optional units label to display next to the input field (string)
+ */
+const NumericField = {
+    oninit: (vnode) => {
+        vnode.state.value = vnode.attrs.value || 0;
+    },
+    view: (vnode) => {
+        return m("div", { class: "inline field" },
+            m("label", { for: vnode.attrs.id }, vnode.attrs.label || "Undefined"),
+            // optional unit label div wrapper - noop if no units provided
+            m("div", { class: vnode.attrs.units ? "ui right labeled input" : "ui input" },
+                m("input", {
+                    type: "text",
+                    class: "right aligned",
+                    id: vnode.attrs.id,
+                    value: vnode.state.value,
+                    oninput: (e) => {
+                        vnode.state.value = e.target.value;
+                        if (vnode.attrs.onchange) {
+                            vnode.attrs.onchange(e.target.value);
+                        }
+                    }
+                }),
+                // optional units label
+                vnode.attrs.units ? m("div", { class: "ui basic label" }, vnode.attrs.units) : ""
+            )
+        );
+    }
+};
+
+
+const TaskSettingsForm = {
+    oninit: (v) => {
+        v.state.task = items["tasks"].find(t => t.name === v.attrs.taskName);
+        v.state.formData = {
+            duration: v.state.task.duration
+        }
+    },
+    view: (v) => {
+        return m("form", { 
+                id: "f-t-settings",
+                class: "ui form",
+                onsubmit: (e) => {
+                    e.preventDefault();
+                    console.log('TASK onsubmit form handler called');
+                    updateTaskItem(v.state.task, v.state.formData)
+                        .then(() => {
+                            refreshAllItems();
+                            console.log("TASK update submitted")
+                        })
+                        .catch((error) => {
+                            console.error("Error updating task", error.response);
+                            $.toast({
+                                position: "bottom attached",
+                                title: "ERROR",
+                                class: "error",
+                                message: error.response.detail.map(d => d.msg).join(", "),
+                                showProgress: "bottom",
+                            })
+                        }
+                    );
+                }
+        },
+            m("div", { class: "fields" },
+                m(NumericField, { 
+                    id: "duration",
+                    label: "Duration",
+                    units: "sec",
+                    value: v.state.formData.duration,
+                    onchange: (value) => { 
+                        v.state.formData.duration = value;
+                    }
+                }),
+            ),
+        ) 
+    }
+};
+
+
+const ProcessSettingsForm = {
+    oninit: (v) => {
+        // vnode.state.processName = vnode.attrs.processName;
+        v.state.process = items["processes"].find(p => p.name === v.attrs.processName);
+        v.state.formData = {
+            cycle_time: v.state.process.cycle_time
+        }
+    },
+
+    view: (v) => {
+        return m("form", { 
+                id: "f-p-settings",
+                class: "ui form",
+                onsubmit: (e) => {
+                    e.preventDefault();
+                    console.log('onsubmit form handler called');
+                    updateProcessItem(v.state.process, v.state.formData)
+                        .then(() => {
+                            refreshAllItems();
+                            console.log("process updated submitted")
+                        })
+                        .catch((error) => {
+                            console.error("Error updating process: ", error.response);
+                            $.toast({
+                                position: "bottom attached",
+                                title: "ERROR",
+                                class: "error",
+                                message: error.response.detail.map(d => d.msg).join(", "),
+                                showProgress: "bottom",
+                            })
+                        });
+                }
+        },
+            m("div", { class: "fields" },
+                m(NumericField, { 
+                    id: "cycle-time",
+                    label: "Cycle Time",
+                    units: "sec",
+                    value: v.state.formData.cycle_time,
+                    onchange: (value) => { 
+                        v.state.formData.cycle_time = value; // Update the process state with the new value
+                    }
+                }),
+            ),
+        ) 
+    }
+};
+
+
 const ProcessSettingsModal = { 
     view: (v) => [
-        // m('div.modal',
         m("modal", { class: "ui overlay modal active", },
             m('div', { class: "header" }, 'Update Process Settings: ' + v.attrs.processName),
-            m('div', { class: "content" }, 'hello 002'),
+            m('div', { class: "content" }, m(ProcessSettingsForm, { processName: v.attrs.processName }, "")),
             m("div", { class: "actions" },
-                m('div', { 
-                    class: "ui close button",
-                    onclick: () => { 
-                        // $('.dimmable').dimmer('hide');
+                m('button', {
+                    class: "ui positive button",
+                    type: "submit",
+                    form: "f-p-settings",
+                    onclick: (e) => {
+                        disableDimmer();
                         showProcessSettingsModal[v.attrs.processName] = false;
-                        console.log("close button clicked: " + v.attrs.processName);
+                        console.log("save button clicked: " + v.attrs.processName);
                     }
-                }, 'Close')
+                }, 'Apply'),
+                m('button', { 
+                    class: "ui negative button",
+                    onclick: () => { 
+                        disableDimmer();
+                        showProcessSettingsModal[v.attrs.processName] = false;
+                        console.log("cancel button clicked: " + v.attrs.processName);
+                    }
+                }, 'Cancel')
             )
         )
     ]
 }
 
-const TaskSettingsModal = (task) => {
-    return () => { m("div", { class: "ui modal" }, "task says hello") }
-}
+const TaskSettingsModal = {
+    view: (v) => [
+        m("modal", { class: "ui overaly modal active", },
+            m("div", { class: "header" }, "Update Task Settings: " + v.attrs.taskName),
+            m("div", { class: "content" }, m(TaskSettingsForm, { taskName: v.attrs.taskName }, "")),
+            m("div", { class: "actions" },
+                m("button", {
+                    class: "ui positive button",
+                    type: "submit",
+                    form: "f-t-settings",
+                    onclick: (e) => {
+                        disableDimmer();
+                        showTaskSettingsModal[v.attrs.taskName] = false;
+                        console.log("save button clicked: " + v.attrs.taskName);
+                    }
+                }, "Apply"),
+                m("button", {
+                    class: "ui negative button",
+                    onclick: () => {
+                        disableDimmer();
+                        showTaskSettingsModal[v.attrs.taskName] = false;
+                        console.log("cancel button clicked: " + v.attrs.taskName);
+                    }
+                }, "Cancel")
+            )
+        )
+    ]
+};
+
 
 const ProcessGroupTable = {
     intervalId: null,
@@ -480,7 +695,7 @@ const TaskGroupTable = {
     view: function() {
         return m("div", { class: "ui wide container", style: "margin-left: 20px; margin-right: 20px" }, 
             m("div", { class: "ui padded grid" },
-                itemGroupDivider("Automation Tasks", "wrench"),
+                ItemGroupDivider("Automation Tasks", "wrench"),
                 m("div", { class: "row" },
                     m("table", { class: "ui compact celled striped table"},
                         m("thead",
@@ -520,7 +735,7 @@ const TaskGroupTable = {
     }
 };
 
-const itemGroups = [ProcessGroupTable, TaskGroupTable];
+const itemGroupTables = [ProcessGroupTable, TaskGroupTable];
 
 const App = {
 
@@ -529,30 +744,30 @@ const App = {
         // else change to auto
         if (refreshState === RefreshState.AUTO || refreshState === RefreshState.MANUAL) {
             refreshState = RefreshState.OFF;
-            itemGroups.map(group => stopFetchingByGroup(group)) 
+            itemGroupTables.map(group => stopFetchingByGroup(group)) 
         } else {
             refreshState = RefreshState.AUTO;
-            itemGroups.map(group => startFetchingByGroup(group))
+            itemGroupTables.map(group => startFetchingByGroup(group))
         }
 
     },
     stopFetching: () => {
-        itemGroups.map(group => stopFetchingByGroup(group))
+        itemGroupTables.map(group => stopFetchingByGroup(group))
         refreshState = RefreshState.OFF; 
     },
     startFetching: () => {
-        itemGroups.map(group => startFetchingByGroup(group))
+        itemGroupTables.map(group => startFetchingByGroup(group))
         refreshState = RefreshState.AUTO;
     },
 
     view: function() {
         // return m("div", {id: "app", class: "container stretch page blurring dimmable" },
         
-        return m("div", {id: "app", class: "container stretch overlay page dimmable" },
+        return m("div", { id: "app", class: "ui fluid container" },
             [
                 m(Header),
-                itemGroups.map(group => m(group)),
-        ]
+                itemGroupTables.map(group => m(group)),
+            ]
         );
     }
 };

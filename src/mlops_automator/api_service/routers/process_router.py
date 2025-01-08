@@ -39,5 +39,7 @@ def update_process_attrs(request: Request, process_name: str, params: ProcessPar
                     process.start_worker()
                 elif status.lower() == 'stopped':
                     process.stop_worker()
+            if cycle_time := params.cycle_time:
+                process.cycle_time = cycle_time
             return ProcessModel.model_validate(process)
     raise HTTPException(status_code=404, detail="Task not found")
