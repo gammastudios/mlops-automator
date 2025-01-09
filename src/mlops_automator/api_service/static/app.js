@@ -1,107 +1,7 @@
 // Required if API is served by a different web server than the ui
 // const API_URL = "http://localhost:8000";
 import { DateTime } from "/web/static/js/luxon.js";
-
-
-// -----------------------------
-// model
-
-const ItemGroup = Object.freeze({
-    PROCESSES: 'processes',
-    TASKS: 'tasks'
-});
-
-// possible refresh states
-const RefreshState = Object.freeze({
-    AUTO: 'auto',
-    MANUAL: 'manual',
-    OFF: 'off'
-});
-
-// possible process status states
-const ProcessStatus = Object.freeze({
-    RUNNING: 'running',
-    STOPPED: 'stopped',
-    INIT: 'init'
-});
-
-// possible task status states
-const TaskStatus = Object.freeze({
-    RUNNING: 'running',
-    FINISHED: 'finished',
-    INIT: 'init'
-});
-
-// keys must align with labels in ItemGroup
-var items = {
-    processes: [],
-    tasks: []
-};
-
-// load the app with refresh enabled
-var refreshState = RefreshState.AUTO;
-
-// used to manage async process status updates with starting/stopping processes
-var prevProcessStatus = {};
-
-// used to manage async task start updates
-var prevTaskId = {};
-
-// refresh rate in milliseconds
-var refreshRate = 5000;
-
-
-const toggleProcessItem = (process) => {
-    // Sends an API request to toggle the state of a process item
-    m.request({
-        method: "PATCH",
-        url: "/process/" + process.name,
-        body: {
-            status: process.status === ProcessStatus.RUNNING ? ProcessStatus.STOPPED : ProcessStatus.RUNNING
-        }
-    })
-    .catch(error => {
-    });
-
-};
-
-
-// update process attributes, if different from the current process values
-const updateProcessItem = (process, updateValues) => new Promise((resolve, reject) => {
-    // only send attributes with different values
-    let newValues = {};
-    for (let key in updateValues) {
-        if (process[key] !== updateValues[key]) {
-            newValues[key] = updateValues[key];
-        }
-    };
-    // submit the patch request regardless of whether there are any changes and retun the result
-    m.request({
-        method: "PATCH",
-        url: "/process/" + process.name,
-        body: newValues
-    })
-    .then(data => resolve(data))
-    .catch(error => reject(error));
-});
-
-
-const updateTaskItem = (task, updateValues) => new Promise((resolve, reject) => {
-    // only send attributes with different values
-    let newValues = {};
-    for (let key in updateValues) {
-        if (task[key] !== updateValues[key]) {
-            newValues[key] = updateValues[key];
-        }
-    };
-    m.request({
-        method: "PATCH",
-        url: "/tasks/" + task.name,
-        body: newValues
-    })
-    .then(data => resolve(data))
-    .catch(error => reject(error));
-});
+import { app, ProcessModel, TaskModel, ItemGroup, RefreshState } from "/web/static/js/models/app.models.js";
 
 
 const formatDttm = (dttmStr, defaultLowDttmStr="-") => {
@@ -133,7 +33,7 @@ const sinceLastProcessCycle = (process, defaultNoCycleStr="-") => {
 
 const sinceLastTask = (task, defaultNoDurationStr="-") => {
     // based on status and start/finish times, provide a string representation of the duration since last finish
-    if (task.status !== TaskStatus.FINISHED) {
+    if (task.status !== TaskModel.TaskStatus.FINISHED) {
         return defaultNoDurationStr;
     } else {
         return DateTime.fromISO(task.finish_dttm)
@@ -142,81 +42,6 @@ const sinceLastTask = (task, defaultNoDurationStr="-") => {
                 locale: "en", 
                 units: ["days", "hours", "minutes", "seconds"] 
             })
-    }
-};
-
-// refresh a set of items from the API service
-const refreshItems = (itemSet) => new Promise((resolve, reject) => {
-    resolve(m.request({
-            method: "GET",
-            url: "/" + itemSet
-        })
-        .then(data => {
-            items[itemSet] = data[itemSet];
-            if (itemSet === ItemGroup.PROCESSES) {
-                items[itemSet].forEach(process => {
-                    // if there is a previous status that is different from latest status remove the update flag
-                    if (prevProcessStatus[process.name] !== undefined) {
-                        if (prevProcessStatus[process.name] !== process.status)
-                            delete prevProcessStatus[process.name];
-                    }
-                });
-            } else if (itemSet === ItemGroup.TASKS) {
-                items[itemSet].forEach(task => {
-                    // if there is a previous status that is different from latest status remove the update flag
-                    if (prevTaskId[task.name] !== undefined) {
-                        if (prevTaskId[task.name] !== task.id) {
-                            delete prevTaskId[task.name];
-                        }
-                    }
-                });
-            }
-        })
-        .catch(error => {
-            console.error("Error fetching " + itemSet + ":", error);
-        })
-    )
-});
-
-
-const startTask = (task) => new Promise((resolve, reject) => {
-    // Send an API request to start a task
-    resolve(
-        m.request({
-            method: "POST",
-            url: "/tasks/" + task.name,
-            body: { }
-        })
-        .catch(error => {
-            // TODO - better error handling for 409 Conflict responses
-            console.error("Error starting task " + task.name + ":", error);
-        })
-    )
-});
-
-
-// refresh all the item groups
-const refreshAllItems = () => new Promise((resolve, reject) => {
-    Promise.all(itemGroupTables.map(itemGroup => refreshItems(itemGroup.groupName)))
-        .then(resolve)
-        .catch(reject);
-})
-
-
-// enable data fetching for a group of items
-const startFetchingByGroup = (itemGroup) => {
-    refreshItems(itemGroup.groupName);
-    if (itemGroup.intervalId === null) {
-        itemGroup.intervalId = setInterval(refreshItems, refreshRate, itemGroup.groupName);
-    }
-};
-
-
-// stop data fetching for a group of items
-const stopFetchingByGroup = (itemGroup) => {
-    if (itemGroup.intervalId) {
-        clearInterval(itemGroup.intervalId);
-        itemGroup.intervalId = null;
     }
 };
 
@@ -231,29 +56,29 @@ const RefreshButton = {
     // https://mithril-by-examples.js.org/examples/loading-button-component/
     view: (v) =>
         m("button", {
-                class: refreshState === RefreshState.MANUAL ? "ui active button" : "ui button",
+                class: app.model.refreshStateIsManual() ? "ui active button" : "ui button",
                 onclick: () => {
-                    let prevRefreshState = refreshState;
-                    refreshState = RefreshState.MANUAL;
+                    let prevRefreshState = app.model.getRefreshState();
+                    app.model.setRefreshState(RefreshState.MANUAL);
                     m.redraw();
                     // ensures a 1/2 second delay before reverting to previous refresh state
                     const startTime = Date.now();
-                    refreshAllItems().then((response) => {
+                    app.model.refreshAllItems().then((response) => {
                         const elapsedTime = Date.now() - startTime;
                         const remainingTime = RefreshButton.animationDelay - elapsedTime;
                         if (remainingTime > 0) {
                             setTimeout(() => {
-                                refreshState = prevRefreshState;
+                                app.model.setRefreshState(prevRefreshState);
                                 m.redraw();
                             }, remainingTime);
                         } else {
-                            refreshState = prevRefreshState;
+                            app.model.setRefreshState(prevRefreshState);
                             m.redraw();
                         }
                     })
                 }
             },
-            m("i", { class: refreshState === RefreshState.MANUAL ? "ui loading refresh icon": "ui refresh icon" }, "")
+            m("i", { class: app.model.refreshStateIsManual() ? "ui loading refresh icon": "ui refresh icon" }, "")
         )
 };
 
@@ -261,7 +86,7 @@ const RefreshButton = {
 const PlayButton = {
     view: (v) =>
         m("button", { 
-            class: refreshState === RefreshState.AUTO ? "ui active button" : "ui button", 
+            class: app.model.refreshStateIsAuto() ? "ui active button" : "ui button", 
             onclick: App.startFetching },
         m("i", { class: "ui play icon" }, "")
     )
@@ -271,7 +96,7 @@ const PlayButton = {
 const PauseButton = {
     view : (v) =>
         m("button", {
-            class: refreshState === RefreshState.OFF ? "ui active button" : "ui button",
+            class: app.model.refreshStateIsOff() ? "ui active button" : "ui button",
             onclick: App.stopFetching
         },
         m("i", { class: "ui pause icon"})
@@ -282,13 +107,13 @@ const PauseButton = {
 const StatusButton = {
     view: (v) =>
         m("div", { 
-            class: refreshState === RefreshState.AUTO || refreshState === RefreshState.MANUAL ? "small ui active green button" :
+            class: app.model.isRefreshing() ? "small ui active green button" :
                     "small ui active grey button",
                 onclick: App.toggleFetching,
                 style: "width: 150px"
             },
-            refreshState === RefreshState.AUTO ? "Monitoring" : 
-                refreshState === RefreshState.OFF ? "Paused" : "Refreshing"
+            app.model.refreshStateIsAuto() ? "Monitoring" : 
+                app.model.refreshStateIsOff() ? "Paused" : "Refreshing"
     )
 };
 
@@ -341,12 +166,12 @@ const ToggleProcessButton = (process) => {
         "div", { class: "ui toggle checkbox" }, 
             m("input", {
                 type: "checkbox", 
-                checked: process.status === ProcessStatus.RUNNING,
+                checked: process.status === ProcessModel.ProcessStatus.RUNNING,
                 onclick: (event) => {
-                    prevProcessStatus[process.name] = process.status;
-                    toggleProcessItem(process);  
+                    app.model.prevProcessStatus[process.name] = process.status;
+                    ProcessModel.toggleProcessItem(process);  
                 },
-                disabled: prevProcessStatus[process.name] !== undefined
+                disabled: app.model.prevProcessStatus[process.name] !== undefined
             }),
             m("label", "", "")
     );
@@ -356,22 +181,22 @@ const ToggleProcessButton = (process) => {
 const RunTaskButton = (task) => {
     return m("div", {class: ""}, [
         m("button", {
-                class: task.status === TaskStatus.RUNNING ? "ui green small labeled icon button" : "ui small labeled icon button",
+                class: task.status === TaskModel.TaskStatus.RUNNING ? "ui green small labeled icon button" : "ui small labeled icon button",
                 style: "width: 120px",
                 onclick: () => {
-                    prevTaskId[task.name] = task.id;
-                    startTask(task)
+                    app.model.prevTaskId[task.name] = task.id;
+                    TaskModel.startTask(task)
                 },
-                disabled: (prevTaskId[task.name] !== undefined
-                      || prevTaskId[task.name] === task.id 
-                      || task.status === TaskStatus.RUNNING
+                disabled: (app.model.prevTaskId[task.name] !== undefined
+                      || app.model.prevTaskId[task.name] === task.id 
+                      || task.status === TaskModel.TaskStatus.RUNNING
                     ),
             },
             m("i", { 
-                class: task.status === TaskStatus.RUNNING ? "ui loading spinner icon" : "ui play icon" 
+                class: task.status === TaskModel.TaskStatus.RUNNING ? "ui loading spinner icon" : "ui play icon"
             }, ""),
             m("span", { class: "" }, 
-                task.status === TaskStatus.RUNNING ? "Running" : "Start"
+                task.status === TaskModel.TaskStatus.RUNNING ? "Running" : "Start"
             )
         ),
     ]);
@@ -380,18 +205,18 @@ const RunTaskButton = (task) => {
 
 const ProcessStatusIndicator = (process) => {
     return m("i", { 
-        class: prevProcessStatus[process.name] !== undefined ? "ui grey loading spinner icon" : 
-               process.status === ProcessStatus.RUNNING ? "ui teal chevron circle right icon" : 
-               process.status === ProcessStatus.STOPPED ? "ui red stop circle outline icon" : "ui yellow question circle icon"
+        class: app.model.prevProcessStatus[process.name] !== undefined ? "ui grey loading spinner icon" : 
+               process.status === ProcessModel.ProcessStatus.RUNNING ? "ui teal chevron circle right icon" : 
+               process.status === ProcessModel.ProcessStatus.STOPPED ? "ui red stop circle outline icon" : "ui yellow question circle icon"
     }, "");
 };
 
 
 const TaskStatusIndicator = (task) => {
     return m("i", {
-        class: (prevTaskId[task.name] !== undefined || prevTaskId[task.name] === task.id) ? "ui loading spinner icon" :
-            task.status === TaskStatus.RUNNING ? "ui loading spinner icon" :
-            task.status === TaskStatus.FINISHED ? "ui green check icon" : "ui yellow question circle icon"
+        class: (app.model.prevTaskId[task.name] !== undefined || app.model.prevTaskId[task.name] === task.id) ? "ui loading spinner icon" :
+            task.status === TaskModel.TaskStatus.RUNNING ? "ui loading spinner icon" :
+            task.status === TaskModel.TaskStatus.FINISHED ? "ui green check icon" : "ui yellow question circle icon"
     }, "");
 };
 
@@ -476,7 +301,7 @@ const NumericField = {
 
 const TaskSettingsForm = {
     oninit: (v) => {
-        v.state.task = items["tasks"].find(t => t.name === v.attrs.taskName);
+        v.state.task = app.model.items["tasks"].find(t => t.name === v.attrs.taskName);
         v.state.formData = {
             duration: v.state.task.duration
         }
@@ -488,9 +313,9 @@ const TaskSettingsForm = {
                 onsubmit: (e) => {
                     e.preventDefault();
                     console.log('TASK onsubmit form handler called');
-                    updateTaskItem(v.state.task, v.state.formData)
+                    TaskModel.updateTaskItem(v.state.task, v.state.formData)
                         .then(() => {
-                            refreshAllItems();
+                            app.model.refreshAllItems();
                             console.log("TASK update submitted")
                         })
                         .catch((error) => {
@@ -525,7 +350,7 @@ const TaskSettingsForm = {
 const ProcessSettingsForm = {
     oninit: (v) => {
         // vnode.state.processName = vnode.attrs.processName;
-        v.state.process = items["processes"].find(p => p.name === v.attrs.processName);
+        v.state.process = app.model.items["processes"].find(p => p.name === v.attrs.processName);
         v.state.formData = {
             cycle_time: v.state.process.cycle_time
         }
@@ -538,9 +363,9 @@ const ProcessSettingsForm = {
                 onsubmit: (e) => {
                     e.preventDefault();
                     console.log('onsubmit form handler called');
-                    updateProcessItem(v.state.process, v.state.formData)
+                    ProcessModel.updateProcessItem(v.state.process, v.state.formData)
                         .then(() => {
-                            refreshAllItems();
+                            app.model.refreshAllItems();
                             console.log("process updated submitted")
                         })
                         .catch((error) => {
@@ -632,10 +457,10 @@ const TaskSettingsModal = {
 
 const ProcessGroupTable = {
     intervalId: null,
-    groupName: ItemGroup.PROCESSES,
+    groupName: ItemGroup.GroupKey.PROCESSES,
 
     oninit: function() {
-        startFetchingByGroup(ProcessGroupTable);
+        app.model.startFetchingByGroup(ProcessGroupTable);
     },
     view: function() {
         return m("div", { class: "ui wide container", style: "margin-left: 20px; margin-right: 20px" },
@@ -662,7 +487,7 @@ const ProcessGroupTable = {
                             )
                         ),
                         m("tbody",
-                            items["processes"].map(function(process) {
+                            app.model.items["processes"].map(function(process) {
                                 return m("tr",
                                     m("td", { class: "center aligned" }, ToggleProcessButton(process)),
                                     m("td", { class: "center aligned" }, ProcessSettingsButton(process)),
@@ -687,10 +512,10 @@ const ProcessGroupTable = {
 
 const TaskGroupTable = {
     intervalId: null,
-    groupName: ItemGroup.TASKS,
+    groupName: ItemGroup.GroupKey.TASKS,
 
     oninit: function() {
-        startFetchingByGroup(TaskGroupTable);
+        app.model.startFetchingByGroup(TaskGroupTable);
     },
     view: function() {
         return m("div", { class: "ui wide container", style: "margin-left: 20px; margin-right: 20px" }, 
@@ -713,7 +538,7 @@ const TaskGroupTable = {
                             )
                         ),
                         m("tbody",
-                            items["tasks"].map(function(task) {
+                            app.model.items["tasks"].map(function(task) {
                                 return m("tr",
                                     m("td", { class: "center aligned" }, RunTaskButton(task)),
                                     m("td", { class: "center aligned" }, TaskSettingsButton(task)),
@@ -742,22 +567,22 @@ const App = {
     toggleFetching: () => {
         // if refresh state is auto or manual change to off
         // else change to auto
-        if (refreshState === RefreshState.AUTO || refreshState === RefreshState.MANUAL) {
-            refreshState = RefreshState.OFF;
-            itemGroupTables.map(group => stopFetchingByGroup(group)) 
+        if (app.model.isRefreshing()) {
+            app.model.setRefreshState(RefreshState.OFF);
+            itemGroupTables.map(group => app.model.stopFetchingByGroup(group)) 
         } else {
-            refreshState = RefreshState.AUTO;
-            itemGroupTables.map(group => startFetchingByGroup(group))
+            app.model.setRefreshState(RefreshState.AUTO);
+            itemGroupTables.map(group => app.model.startFetchingByGroup(group))
         }
 
     },
     stopFetching: () => {
-        itemGroupTables.map(group => stopFetchingByGroup(group))
-        refreshState = RefreshState.OFF; 
+        itemGroupTables.map(group => app.model.stopFetchingByGroup(group))
+        app.model.setRefreshState(RefreshState.OFF); 
     },
     startFetching: () => {
-        itemGroupTables.map(group => startFetchingByGroup(group))
-        refreshState = RefreshState.AUTO;
+        itemGroupTables.map(group => app.model.startFetchingByGroup(group))
+        app.model.setRefreshState(RefreshState.AUTO);
     },
 
     view: function() {
