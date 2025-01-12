@@ -1,5 +1,4 @@
 import { DateTime } from "/web/static/js/luxon.js";
-import { TaskFactory, ProcessFactory  } from "../models/app_models.js";
 
 
 export const formatDttm = (dttmStr, defaultLowDttmStr="-") => {
@@ -15,8 +14,8 @@ export const formatDttm = (dttmStr, defaultLowDttmStr="-") => {
 };
 
 
-export const sinceLastProcessCycle = (process, defaultNoCycleStr="-") => {
-    let trgtDttm = DateTime.fromISO(process.last_cycle_dttm);
+export const sinceLastProcessCycle = (lastCycleDttm, defaultNoCycleStr="-") => {
+    let trgtDttm = DateTime.fromISO(lastCycleDttm);
     let lowDttm = DateTime.fromISO('1900-01-01T00:00:00+00:00');
     if (trgtDttm.toMillis() == lowDttm.toMillis()) {
         return defaultNoCycleStr;
@@ -31,10 +30,10 @@ export const sinceLastProcessCycle = (process, defaultNoCycleStr="-") => {
 
 export const sinceLastTask = (task, defaultNoDurationStr="-") => {
     // based on status and start/finish times, provide a string representation of the duration since last finish
-    if (task.status !== TaskFactory.TaskStatus.FINISHED) {
+    if (task.isRunning() || task.isInitial()) {
         return defaultNoDurationStr;
     } else {
-        return DateTime.fromISO(task.finish_dttm)
+        return DateTime.fromISO(task.taskFinishDttm)
             .toRelative({
                 style: "short", 
                 locale: "en", 
@@ -46,10 +45,10 @@ export const sinceLastTask = (task, defaultNoDurationStr="-") => {
 export class AppViews {
     constructor(model) {
         this.model = model
-        // TODO - make this dynamic so as to not be dependent on the actual process names managed by the API svc
 
-        this.showProcessSettingsModal = { process1: false, process2: false }; ;
-        this.showTaskSettingsModal = { task1: false, task2: false };
+        // used to control display of process and task settings modal forms
+        this.showProcessSettingsModal = { }; ;
+        this.showTaskSettingsModal = { };
 
         this.dimmerEnabled = false;
     }
@@ -152,12 +151,9 @@ export class AppViews {
             return m("div", { class: "ui toggle checkbox" }, 
                 m("input", {
                     type: "checkbox", 
-                    checked: v.attrs.process.status === ProcessFactory.ProcessStatus.RUNNING,
-                    onclick: (event) => {
-                        this.model.prevProcessStatus[v.attrs.process.name] = v.attrs.process.status;
-                        ProcessFactory.toggleProcessItem(v.attrs.process);  
-                    },
-                    disabled: this.model.prevProcessStatus[v.attrs.process.name] !== undefined
+                    checked: v.attrs.process.isRunning(),
+                    onclick: () => { v.attrs.process.toggleStatus(); },
+                    disabled: v.attrs.process.isUpdatingStatus()
                 }),
                 m("label", "", "")
             );
@@ -169,22 +165,16 @@ export class AppViews {
         view: (v) => {
             return m("div", {class: ""}, [
                 m("button", {
-                            class: v.attrs.task.status === TaskFactory.TaskStatus.RUNNING ? "ui green small labeled icon button" : "ui small labeled icon button",
+                            class: v.attrs.task.isRunning() ? "ui green small labeled icon button" : "ui small labeled icon button",
                             style: "width: 120px",
-                            onclick: () => {
-                               this.model.prevTaskId[v.attrs.task.name] = v.attrs.task.id;
-                                TaskFactory.startTask(v.attrs.task)
-                            },
-                            disabled: (this.model.prevTaskId[v.attrs.task.name] !== undefined
-                                || this.model.prevTaskId[v.attrs.task.name] === v.attrs.task.id 
-                                || v.attrs.task.status === TaskFactory.TaskStatus.RUNNING
-                                ),
+                            onclick: () => { v.attrs.task.startTaskInstance() },
+                            disabled: v.attrs.task.isStartingTaskInstance() || v.attrs.task.isRunning()
                     },
                     m("i", { 
-                        class: v.attrs.task.status === TaskFactory.TaskStatus.RUNNING ? "ui loading spinner icon" : "ui play icon"
+                        class: v.attrs.task.isRunning() ? "ui loading spinner icon" : "ui play icon"
                     }, ""),
                     m("span", { class: "" }, 
-                        v.attrs.task.status === TaskFactory.TaskStatus.RUNNING ? "Running" : "Start"
+                        v.attrs.task.isRunning() ? "Running" : "Start"
                     )
                 ),
             ]);
@@ -192,12 +182,13 @@ export class AppViews {
     }}
 
 
+    
     ProcessStatusIndicator = () => { return {
         view: (v) => {
             return m("i", { 
-                    class: this.model.prevProcessStatus[v.attrs.process.name] !== undefined ? "ui grey loading spinner icon" : 
-                        v.attrs.process.status === ProcessFactory.ProcessStatus.RUNNING ? "ui teal chevron circle right icon" : 
-                        v.attrs.process.status === ProcessFactory.ProcessStatus.STOPPED ? "ui red stop circle outline icon" : "ui yellow question circle icon"
+                    class: v.attrs.process.isUpdatingStatus() ? "ui grey loading spinner icon" : 
+                        v.attrs.process.isRunning() ? "ui teal chevron circle right icon" : 
+                        v.attrs.process.isStopped() ? "ui red stop circle outline icon" : "ui yellow question circle icon"
             }, "");
         }
     }}
@@ -206,9 +197,9 @@ export class AppViews {
     TaskStatusIndicator = () => { return {
         view: (v) => {
             return m("i", {
-                    class: (this.model.prevTaskId[v.attrs.task.name] !== undefined || this.model.prevTaskId[v.attrs.task.name] === v.attrs.task.id) ? "ui loading spinner icon" :
-                        v.attrs.task.status === TaskFactory.TaskStatus.RUNNING ? "ui loading spinner icon" :
-                        v.attrs.task.status === TaskFactory.TaskStatus.FINISHED ? "ui green check icon" : "ui yellow question circle icon"
+                    class: (v.attrs.task.isStartingTaskInstance()) ? "ui loading spinner icon" :
+                        v.attrs.task.isRunning() ? "ui loading spinner icon" :
+                        v.attrs.task.isFinished() ? "ui green check icon" : "ui yellow question circle icon"
             }, "");
         }
     }}
@@ -233,12 +224,12 @@ export class AppViews {
                         type: "button",
                         onclick: () => { 
                             this.enableDimmer();
-                            this.showProcessSettingsModal[v.attrs.process.name] = true;
-                            console.log("settings button clicked: " + v.attrs.process.name);
+                            this.showProcessSettingsModal[v.attrs.process.processName] = true;
+                            console.log("settings button clicked: " + v.attrs.process.processName);
                         },
                     },
                     m("i", { class: "ui settings icon" }, "")),
-                this.showProcessSettingsModal[v.attrs.process.name] && m(this.ProcessSettingsModal, { model: v.attrs.model, processName: v.attrs.process.name }, "")
+                this.showProcessSettingsModal[v.attrs.process.processName] && m(this.ProcessSettingsModal, { processName: v.attrs.process.processName }, "")
             );
         }
     }}
@@ -252,12 +243,12 @@ export class AppViews {
                         type: "button",
                         onclick: () => {
                             this.enableDimmer();
-                            this.showTaskSettingsModal[v.attrs.task.name] = true;
-                            console.log("settings button clicked: " + v.attrs.task.name);
+                            this.showTaskSettingsModal[v.attrs.task.taskName] = true;
+                            console.log("settings button clicked: " + v.attrs.task.taskName);
                         },
                     },
                     m("i", { class: "ui settings icon" }, "")),
-                this.showTaskSettingsModal[v.attrs.task.name] && m(this.TaskSettingsModal, { model: v.attrs.model, taskName: v.attrs.task.name }, "")
+                this.showTaskSettingsModal[v.attrs.task.taskName] && m(this.TaskSettingsModal, { taskName: v.attrs.task.taskName }, "")
             );
         }
     }}
@@ -309,9 +300,9 @@ export class AppViews {
     // processName
     ProcessSettingsForm = () => { return {
         oninit: (v) => {
-            v.state.process = this.model.items["processes"].find(p => p.name === v.attrs.processName);
+            v.state.process = this.model.itemGroups["processes"].items.find(p => p.processName === v.attrs.processName);
             v.state.formData = {
-                cycle_time: v.state.process.cycle_time
+                cycleTime: v.state.process.cycleTime
             }
         },
         view: (v) => {
@@ -321,7 +312,7 @@ export class AppViews {
                         onsubmit: (e) => {
                             e.preventDefault();
                             console.log('PROCESS onsubmit form handler called');
-                            ProcessFactory.updateProcessItem(v.state.process, v.state.formData)
+                            v.state.process.update(v.state.formData)
                                 .then(() => {
                                     this.model.refreshAllItems();
                                     console.log("PROCESS update submitted")
@@ -343,9 +334,9 @@ export class AppViews {
                         id: "cycle-time",
                         label: "Cycle Time",
                         units: "sec",
-                        value: v.state.formData.cycle_time,
+                        value: v.state.formData.cycleTime,
                         onchange: (value) => { 
-                            v.state.formData.cycle_time = value; // Update the process state with the new value
+                            v.state.formData.cycleTime = value; // Update the process state with the new value
                         }
                     }),
                 )
@@ -353,12 +344,12 @@ export class AppViews {
         }
     }}
 
-    // model, taskName
+    // taskName
     TaskSettingsForm = () => { return {
         oninit: (v) => {
-            v.state.task = this.model.items["tasks"].find(t => t.name === v.attrs.taskName);
+            v.state.task = this.model.itemGroups["tasks"].items.find(t => t.taskName === v.attrs.taskName);
             v.state.formData = {
-                duration: v.state.task.duration
+                taskDuration: v.state.task.taskDuration
             }
         },
         view: (v) => {
@@ -368,7 +359,7 @@ export class AppViews {
                     onsubmit: (e) => {
                         e.preventDefault();
                         console.log('TASK onsubmit form handler called');
-                        TaskFactory.updateTaskItem(v.state.task, v.state.formData)
+                        v.state.task.update(v.state.formData)
                             .then(() => {
                                 this.model.refreshAllItems();
                                 console.log("TASK update submitted")
@@ -391,9 +382,9 @@ export class AppViews {
                         id: "duration",
                         label: "Duration",
                         units: "sec",
-                        value: v.state.formData.duration,
+                        value: v.state.formData.taskDuration,
                         onchange: (value) => { 
-                            v.state.formData.duration = value;
+                            v.state.formData.taskDuration = value;
                         }
                     }),
                 ),
@@ -402,7 +393,7 @@ export class AppViews {
     }}
 
 
-    // model, processName
+    // processName
     ProcessSettingsModal = () => { return { 
         view: (v) => [
             m("modal", { class: "ui overlay modal active", },
@@ -432,7 +423,7 @@ export class AppViews {
         ]
     }}
 
-    // model, taskName
+    // taskName
     TaskSettingsModal = () => { return {
         view: (v) => [
             m("modal", { class: "ui overaly modal active", },
@@ -496,17 +487,18 @@ export class AppViews {
                                 )
                             ),
                             m("tbody",
-                                this.model.items["processes"].map((process) => {
+                                // this.model.items["processes"].map((process) => {
+                                this.model.itemGroups["processes"].items.map((process) => {
                                     return m("tr",
                                         m("td", { class: "center aligned" }, m(this.ToggleProcessButton, { process: process})),
                                         m("td", { class: "center aligned" }, m(this.ProcessSettingsButton, { process: process })),
                                         m("td", { class: "center aligned" }, m(this.ProcessStatusIndicator, { process: process})),
-                                        m("td", { class: "left aligned" }, process.name),
-                                        m("td", { class: "center aligned" }, process.status),
-                                        m("td", { class: "right aligned" }, process.cycle_time),
-                                        m("td", { class: "right aligned" }, process.cycles_completed),
-                                        m("td", { class: "center aligned" }, formatDttm(process.last_cycle_dttm)),
-                                        m("td", { class: "center aligned" }, sinceLastProcessCycle(process))
+                                        m("td", { class: "left aligned" }, process.processName),
+                                        m("td", { class: "center aligned" }, process.processStatus),
+                                        m("td", { class: "right aligned" }, process.cycleTime),
+                                        m("td", { class: "right aligned" }, process.cycleCount),
+                                        m("td", { class: "center aligned" }, formatDttm(process.lastCycleDttm)),
+                                        m("td", { class: "center aligned" }, sinceLastProcessCycle(process.lastCycleDttm))
                                     );
                                 })
                             )
@@ -540,17 +532,17 @@ export class AppViews {
                                 )
                             ),
                             m("tbody",
-                                this.model.items["tasks"].map((task) => {
+                                this.model.itemGroups["tasks"].items.map((task) => {
                                     return m("tr",
                                         m("td", { class: "center aligned" }, m(this.RunTaskButton, { task: task})),
                                         m("td", { class: "center aligned" }, m(this.TaskSettingsButton, { task: task })),
                                         m("td", { class: "center aligned" }, m(this.TaskStatusIndicator, { task: task})),
-                                        m("td", task.name),
-                                        m("td", task.status),
-                                        m("td", task.duration),
-                                        // m("td", task.id),
-                                        m("td", formatDttm(task.start_dttm)),
-                                        m("td", formatDttm(task.finish_dttm)),
+                                        m("td", task.taskName),
+                                        m("td", task.taskStatus),
+                                        m("td", task.taskDuration),
+                                        // m("td", task.taskId),
+                                        m("td", formatDttm(task.taskStartDttm)),
+                                        m("td", formatDttm(task.taskFinishDttm)),
                                         m("td", { class: "center aligned" }, sinceLastTask(task))
                                     );
                                 })
