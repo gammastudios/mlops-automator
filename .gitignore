@@ -163,3 +163,7 @@ cython_debug/
 /output
 .DS_Store
 .vscode
+
+
+# Node.js dependencies
+node_modules/
